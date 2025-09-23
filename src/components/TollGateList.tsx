@@ -105,7 +105,7 @@ export const TollGateList: React.FC<TollGateListProps> = ({
               placeholder="Buscar por nombre o pórtico..."
               value={searchTerm}
               onChange={(e) => onSearchChange(e.target.value)}
-              className="input pl-10"
+              className="input pl-10 h-10 w-full border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
           
@@ -113,7 +113,7 @@ export const TollGateList: React.FC<TollGateListProps> = ({
           <select
             value={selectedConcessionaire}
             onChange={(e) => onConcessionaireChange(e.target.value)}
-            className="input"
+            className="input h-10 w-full border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
           >
             <option value="">Todos los concesionarios</option>
             {concessionaires.map(concessionaire => (
