@@ -70,12 +70,12 @@ export const TollGateList: React.FC<TollGateListProps> = ({
     return (
       <div className="card">
         <div className="card-header">
-          <h3 className="text-lg font-medium text-gray-900">Toll Gates</h3>
+          <h3 className="text-lg font-medium text-gray-900">Pórticos</h3>
         </div>
         <div className="card-body">
           <div className="text-center py-8">
             <div className="spinner h-8 w-8 mx-auto mb-4"></div>
-            <p className="text-gray-500">Cargando toll gates...</p>
+            <p className="text-gray-500">Cargando pórticos...</p>
           </div>
         </div>
       </div>
@@ -87,7 +87,7 @@ export const TollGateList: React.FC<TollGateListProps> = ({
       <div className="card-header">
         <h3 className="text-lg font-medium text-gray-900 flex items-center">
           <FontAwesomeIcon icon={faRoad} className="mr-2 text-blue-600" />
-          Toll Gates ({filteredTollGates.length})
+          Pórticos ({filteredTollGates.length})
         </h3>
       </div>
       
@@ -141,8 +141,8 @@ export const TollGateList: React.FC<TollGateListProps> = ({
             <FontAwesomeIcon icon={faRoad} className="text-gray-300 text-4xl mb-4" />
             <p className="text-gray-500">
               {tollGates.length === 0 
-                ? 'No hay toll gates disponibles'
-                : 'No se encontraron toll gates con los filtros aplicados'}
+                ? 'No hay pórticos disponibles'
+                : 'No se encontraron pórticos con los filtros aplicados'}
             </p>
           </div>
         ) : (
@@ -208,7 +208,7 @@ export const TollGateList: React.FC<TollGateListProps> = ({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (window.confirm(`¿Estás seguro de eliminar el toll gate "${tollGate.name}"?`)) {
+                        if (window.confirm(`¿Estás seguro de eliminar el pórtico "${tollGate.name}"?`)) {
                           onDeleteTollGate(tollGate.id);
                         }
                       }}

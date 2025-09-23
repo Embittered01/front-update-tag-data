@@ -5,7 +5,7 @@ import { AppProvider } from '@/contexts/AppContext';
 
 export const metadata: Metadata = {
   title: "Toll Gate Manager",
-  description: "Sistema de gestión de toll gates (peajes) - Administración completa de tarifas, horarios y concesionarios",
+  description: "Sistema de gestión de Peajes - Administración completa de tarifas, horarios y concesionarios",
   keywords: ["toll gate", "peaje", "gestión", "tarifas", "concesionarios", "administración"],
   authors: [{ name: "Toll Gate Manager Team" }],
   viewport: "width=device-width, initial-scale=1",
