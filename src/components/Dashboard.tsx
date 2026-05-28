@@ -6,8 +6,9 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faRoad, faSignOutAlt, faCog, faTimes, faCheckCircle, faExclamationTriangle, faInfoCircle, faSave, faPlus, faBuilding } from '@fortawesome/free-solid-svg-icons';
+import { faRoad, faSignOutAlt, faCog, faTimes, faCheckCircle, faExclamationTriangle, faInfoCircle, faSave, faPlus, faBuilding, faMapMarkedAlt, faRoute } from '@fortawesome/free-solid-svg-icons';
 import TollGateList from './TollGateList';
 import TollGateModal from './TollGateModal';
 import PaymentValuesSection from './PaymentValuesSection';
@@ -15,11 +16,14 @@ import TimeWindowsSection from './TimeWindowsSection';
 import TimeWindowModal from './TimeWindowModal';
 import AssignTimeWindowModal from './AssignTimeWindowModal';
 import ConcessionaireViewModal from './ConcessionaireViewModal';
+import ExitTollGatesSection from './ExitTollGatesSection';
+import TollGateMapModal from './TollGateMapModal';
 import { useApp } from '@/contexts/AppContext';
 import { useAppState } from '@/hooks';
-import type { TollGate, DayType, PaymentCategoryTimeWindow, TimeWindow } from '@/types';
+import type { TollGate, DayType, PaymentCategoryTimeWindow, TimeWindow, PaymentValueApi, EntryToExitTollGate } from '@/types';
 
 const Dashboard: React.FC = () => {
+  const router = useRouter();
   const { authService, apiService, authState } = useApp();
   const appState = useAppState(authService, apiService);
 
@@ -55,7 +59,7 @@ const Dashboard: React.FC = () => {
     bulkConfigsLoading,
     handleTollGateSelect,
     loadTollGateConfig,
-    loadAllTollGateConfigs,
+    loadTollGateConfigsOnDemand,
     
     // Formularios
     showNewTollGateForm,
@@ -110,6 +114,79 @@ const Dashboard: React.FC = () => {
   const [selectedTimeWindowCategory, setSelectedTimeWindowCategory] = useState<string>('');
   const [selectedTimeWindowDay, setSelectedTimeWindowDay] = useState<DayType | ''>('');
   const [selectedTimeWindowBlock, setSelectedTimeWindowBlock] = useState<string>('');
+  
+  // Estado para manejar la relación entry-to-exit seleccionada
+  const [selectedExitRelation, setSelectedExitRelation] = useState<EntryToExitTollGate | null>(null);
+  const [selectedExitRelationId, setSelectedExitRelationId] = useState<number | null>(null);
+  
+  // Estados para loading de guardado por módulo
+  const [savingPaymentValues, setSavingPaymentValues] = useState<boolean>(false);
+  const [savingTimeWindows, setSavingTimeWindows] = useState<boolean>(false);
+  
+  // Estado para el modal del mapa
+  const [showMapModal, setShowMapModal] = useState<boolean>(false);
+  const [mapLoading, setMapLoading] = useState<boolean>(false);
+
+  // Limpiar la relación seleccionada cuando cambia el pórtico seleccionado
+  useEffect(() => {
+    setSelectedExitRelation(null);
+    setSelectedExitRelationId(null);
+  }, [selectedTollGate]);
+
+  // Cargar configuración completa cuando se selecciona una relación entry-to-exit
+  useEffect(() => {
+    const loadSelectedRelationConfig = async () => {
+      if (!selectedExitRelationId || !apiService) {
+        console.log('🔍 [Dashboard] Skipping config load - missing selectedExitRelationId or apiService:', {
+          selectedExitRelationId,
+          hasApiService: !!apiService
+        });
+        return;
+      }
+
+      try {
+        console.log('🔍 [Dashboard] Loading complete config for selected relation:', selectedExitRelationId);
+        const completeConfig = await apiService.entryToExit.getEntryToExitConfig(selectedExitRelationId);
+        console.log('🔍 [Dashboard] Complete config loaded:', completeConfig);
+        console.log('🔍 [Dashboard] Complete config paymentValues:', completeConfig?.paymentValues);
+        console.log('🔍 [Dashboard] Complete config entryToExitTimeWindows:', completeConfig?.entryToExitTimeWindows);
+        
+        // Actualizar la relación seleccionada con la configuración completa
+        setSelectedExitRelation(completeConfig);
+        console.log('🔍 [Dashboard] selectedExitRelation updated with complete config');
+      } catch (error) {
+        console.error('Error loading selected relation config:', error);
+        console.error('Error details:', {
+          selectedExitRelationId,
+          errorMessage: error instanceof Error ? error.message : 'Unknown error',
+          errorStack: error instanceof Error ? error.stack : undefined
+        });
+      }
+    };
+
+    console.log('🔍 [Dashboard] useEffect triggered for loadSelectedRelationConfig');
+    loadSelectedRelationConfig();
+  }, [selectedExitRelationId, apiService]);
+
+  // Handler para seleccionar una relación entry-to-exit
+  const handleExitRelationSelect = (relation: EntryToExitTollGate) => {
+    console.log('🔍 [Dashboard] Selecting exit relation:', relation.id);
+    console.log('🔍 [Dashboard] Current selectedExitRelationId before update:', selectedExitRelationId);
+    setSelectedExitRelationId(relation.id);
+    console.log('🔍 [Dashboard] selectedExitRelationId set to:', relation.id);
+    // selectedExitRelation se actualizará automáticamente cuando se cargue la configuración completa
+  };
+
+  // Limpiar filtros cuando cambias a modo entry-to-exit
+  useEffect(() => {
+    if (selectedExitRelation) {
+      console.log('🔍 [Entry-to-Exit Debug] Clearing filters for entry-to-exit mode');
+      setTimeWindowSearchTerm('');
+      setSelectedTimeWindowCategory('');
+      setSelectedTimeWindowDay('');
+      setSelectedTimeWindowBlock('');
+    }
+  }, [selectedExitRelation]);
 
   // Cargar datos al montar el componente
   // Cargar datos de referencia al montar el componente (solo una vez)
@@ -120,29 +197,58 @@ const Dashboard: React.FC = () => {
     }
   }, [hasLoaded, loading, loadReferenceData]);
 
-  // Cargar configuraciones de toll gates cuando cambie la lista (evitando cargas duplicadas)
-  useEffect(() => {
-    if (tollGates.length > 0 && hasLoaded) {
-      console.log('Dashboard: Loading toll gate configs because toll gates changed');
-      loadAllTollGateConfigs(tollGates);
-    }
-  }, [tollGates, hasLoaded, loadAllTollGateConfigs]);
+  // REMOVIDO: Carga automática de configuraciones innecesaria
+  // Las configuraciones ahora se cargan bajo demanda cuando se selecciona un pórtico
+  // o cuando se necesitan para indicadores visuales específicos
 
   const handleSaveConfig = async () => {
     if (!selectedTollGate || !apiService) return;
 
     setGlobalLoading(true);
     try {
-      const configData = {
-        paymentValues,
-        timeWindowIds: selectedTimeWindows
-      };
+      // Convertir PaymentValueForm[] a PaymentValueApi[] para la API
+      const paymentValuesApi: PaymentValueApi[] = paymentValues.map(payment => ({
+        paymentCategoryId: parseInt(payment.paymentCategoryId) || 0,
+        vehicleCategoryIds: payment.vehicleCategoryIds,
+        value: parseFloat(payment.value) || 0
+      }));
 
-      await apiService.tollGate.saveTollGateConfig(selectedTollGate.id, configData);
-      showMessage('success', 'Configuración guardada exitosamente');
-      
-      // Recargar la configuración del toll gate
-      await loadTollGateConfig(selectedTollGate.id);
+      // Si hay una relación entry-to-exit seleccionada, usar endpoints de entry-to-exit
+      if (selectedExitRelation) {
+        console.log('Saving entry-to-exit config for relation:', selectedExitRelation.id);
+        
+        // Guardar valores de pago si hay
+        if (paymentValuesApi.length > 0) {
+          await apiService.entryToExit.assignPaymentValues(selectedExitRelation.id, paymentValuesApi);
+        }
+
+        // Guardar ventanas de tiempo si hay
+        if (selectedTimeWindows.length > 0) {
+          await apiService.entryToExit.assignTimeWindows(selectedExitRelation.id, selectedTimeWindows);
+        }
+
+        showMessage('success', 'Configuración de la relación guardada exitosamente');
+        
+        // Recargar la configuración completa de la relación específica
+        console.log('🔍 [Dashboard] Reloading complete config for relation after save:', selectedExitRelation.id);
+        const updatedRelation = await apiService.entryToExit.getEntryToExitConfig(selectedExitRelation.id);
+        console.log('🔍 [Dashboard] Updated relation config loaded:', updatedRelation);
+        setSelectedExitRelation(updatedRelation);
+      } else {
+        // Configuración normal de pórtico (BOTH u otros)
+        const configData = {
+          paymentValues: paymentValuesApi,
+          timeWindowIds: selectedTimeWindows
+        };
+
+        console.log('Saving normal config:', configData);
+
+        await apiService.tollGate.saveTollGateConfig(selectedTollGate.id, configData);
+        showMessage('success', 'Configuración guardada exitosamente');
+        
+        // Recargar la configuración del toll gate
+        await loadTollGateConfig(selectedTollGate.id);
+      }
       
       // Limpiar formularios
       resetPaymentValues();
@@ -156,8 +262,110 @@ const Dashboard: React.FC = () => {
     }
   };
 
+  // Handler para guardar solo valores de pago
+  const handleSavePaymentValues = async () => {
+    if (!selectedTollGate || !apiService || paymentValues.length === 0) return;
+
+    setSavingPaymentValues(true);
+    try {
+      // Convertir PaymentValueForm[] al formato requerido por la API
+      const paymentValuesApi = paymentValues
+        .filter(pv => pv.paymentCategoryId && pv.value)
+        .map(payment => ({
+          paymentCategoryId: parseInt(payment.paymentCategoryId) || 0,
+          value: parseFloat(payment.value) || 0,
+          vehicleCategoryIds: payment.vehicleCategoryIds.length > 0 ? payment.vehicleCategoryIds : undefined
+        }));
+
+      if (paymentValuesApi.length === 0) {
+        showMessage('warning', 'No hay valores de pago válidos para guardar');
+        return;
+      }
+
+      // Si hay una relación entry-to-exit seleccionada, usar endpoints de entry-to-exit
+      if (selectedExitRelation) {
+        await apiService.entryToExit.assignPaymentValues(selectedExitRelation.id, paymentValuesApi);
+        showMessage('success', 'Valores de pago guardados exitosamente');
+        
+        // Recargar la configuración completa de la relación específica
+        const updatedRelation = await apiService.entryToExit.getEntryToExitConfig(selectedExitRelation.id);
+        setSelectedExitRelation(updatedRelation);
+      } else {
+        // Usar el nuevo endpoint por módulo
+        await apiService.tollGate.assignPaymentValues(selectedTollGate.id, paymentValuesApi);
+        showMessage('success', 'Valores de pago guardados exitosamente');
+        
+        // Recargar la configuración del toll gate
+        await loadTollGateConfig(selectedTollGate.id);
+      }
+      
+      // Limpiar formularios
+      resetPaymentValues();
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      showMessage('error', `Error al guardar valores de pago: ${errorMessage}`);
+    } finally {
+      setSavingPaymentValues(false);
+    }
+  };
+
+  // Handler para guardar solo ventanas de tiempo
+  const handleSaveTimeWindows = async () => {
+    if (!selectedTollGate || !apiService || selectedTimeWindows.length === 0) return;
+
+    setSavingTimeWindows(true);
+    try {
+      // Convertir los IDs a el formato requerido por la API
+      const timeWindowsApi = selectedTimeWindows.map(id => ({
+        paymentCategoryTimeWindowId: id
+      }));
+
+      // Si hay una relación entry-to-exit seleccionada, usar endpoints de entry-to-exit
+      if (selectedExitRelation) {
+        await apiService.entryToExit.assignTimeWindows(selectedExitRelation.id, selectedTimeWindows);
+        showMessage('success', 'Ventanas de tiempo guardadas exitosamente');
+        
+        // Recargar la configuración completa de la relación específica
+        const updatedRelation = await apiService.entryToExit.getEntryToExitConfig(selectedExitRelation.id);
+        setSelectedExitRelation(updatedRelation);
+      } else {
+        // Usar el nuevo endpoint por módulo
+        await apiService.tollGate.assignTimeWindowsToTollGate(selectedTollGate.id, timeWindowsApi);
+        showMessage('success', 'Ventanas de tiempo guardadas exitosamente');
+        
+        // Recargar la configuración del toll gate
+        await loadTollGateConfig(selectedTollGate.id);
+      }
+      
+      // Limpiar selección
+      setSelectedTimeWindows([]);
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      showMessage('error', `Error al guardar ventanas de tiempo: ${errorMessage}`);
+    } finally {
+      setSavingTimeWindows(false);
+    }
+  };
+
   const handleLogout = () => {
     authService.logout();
+  };
+
+  // Handler para abrir el modal del mapa con datos actualizados
+  const handleOpenMapModal = async () => {
+    setMapLoading(true);
+    setShowMapModal(true);
+    try {
+      // Recargar los datos de pórticos para obtener cambios recientes
+      await loadReferenceData();
+    } catch (error) {
+      console.error('Error loading toll gates for map:', error);
+      showMessage('error', 'Error al cargar los pórticos para el mapa');
+    } finally {
+      setMapLoading(false);
+    }
   };
 
   const getMessageIcon = () => {
@@ -327,7 +535,7 @@ const Dashboard: React.FC = () => {
       to: paymentCategoryTimeWindow.to,
       dayType: paymentCategoryTimeWindow.dayType,
       dayTypes: [paymentCategoryTimeWindow.dayType], // Convertir singular a array
-      paymentCategoryId: paymentCategoryTimeWindow.paymentCategory.id.toString(),
+      paymentCategoryId: paymentCategoryTimeWindow.paymentCategory.id,
       paymentCategory: paymentCategoryTimeWindow.paymentCategory
     };
     
@@ -481,11 +689,24 @@ const Dashboard: React.FC = () => {
     setGlobalLoading(true);
 
     try {
-      await apiService.tollGate.assignTimeWindows(selectedTollGate.id, timeWindowIds);
-      showMessage('success', `${timeWindowIds.length} ventana${timeWindowIds.length > 1 ? 's' : ''} de tiempo asignada${timeWindowIds.length > 1 ? 's' : ''} exitosamente`);
-      
-      // Recargar configuración del pórtico
-      await loadTollGateConfig(selectedTollGate.id);
+      if (selectedExitRelation) {
+        // Modo Entry-to-Exit: usar el servicio correcto
+        await apiService.entryToExit.assignTimeWindows(selectedExitRelation.id, timeWindowIds);
+        showMessage('success', `${timeWindowIds.length} ventana${timeWindowIds.length > 1 ? 's' : ''} de tiempo asignada${timeWindowIds.length > 1 ? 's' : ''} a la relación exitosamente`);
+        
+        // Recargar la configuración completa de la relación específica
+        console.log('🔍 [Dashboard] Reloading complete config for relation after time window assignment:', selectedExitRelation.id);
+        const updatedRelation = await apiService.entryToExit.getEntryToExitConfig(selectedExitRelation.id);
+        console.log('🔍 [Dashboard] Updated relation config loaded:', updatedRelation);
+        setSelectedExitRelation(updatedRelation);
+      } else {
+        // Modo Normal: usar el servicio de toll gate
+        await apiService.tollGate.assignTimeWindows(selectedTollGate.id, timeWindowIds);
+        showMessage('success', `${timeWindowIds.length} ventana${timeWindowIds.length > 1 ? 's' : ''} de tiempo asignada${timeWindowIds.length > 1 ? 's' : ''} exitosamente`);
+        
+        // Recargar configuración del pórtico
+        await loadTollGateConfig(selectedTollGate.id);
+      }
       
       // Limpiar selección y cerrar modal
       setSelectedTimeWindows([]);
@@ -510,6 +731,55 @@ const Dashboard: React.FC = () => {
     setSelectedTimeWindows([]);
   };
 
+  // Función para convertir TimeWindow a PaymentCategoryTimeWindow
+  const convertTimeWindowsToPaymentCategory = (timeWindows: TimeWindow[]) => {
+    return timeWindows.map(tw => ({
+      id: tw.id,
+      from: tw.from,
+      to: tw.to,
+      dayType: tw.dayType || (tw.dayTypes && tw.dayTypes[0]) || 'ALL_DAYS', // Tomar el primer día o ALL_DAYS por defecto
+      paymentCategory: tw.paymentCategory || { 
+        id: tw.paymentCategoryId || 0, 
+        name: 'Categoría no especificada' 
+      }
+    }));
+  };
+
+  // Helper para normalizar valores de pago de entry-to-exit al formato estándar
+  const normalizeEntryToExitPaymentValues = (relation: EntryToExitTollGate | null) => {
+    if (!relation || !relation.paymentValues) return [];
+    
+    return relation.paymentValues.map(pv => ({
+      id: pv.id,
+      paymentCategoryId: pv.paymentCategoryId.toString(),
+      value: pv.value.toString(),
+      vehicleCategoryIds: pv.vehicleCategories?.map(vc => vc.vehicleCategoryId) || [],
+      paymentCategory: pv.paymentCategory,
+      vehicleCategories: pv.vehicleCategories?.map(vc => vc.vehicleCategory) || []
+    }));
+  };
+
+  // Helper para normalizar ventanas de tiempo de entry-to-exit al formato estándar
+  const normalizeEntryToExitTimeWindows = (relation: EntryToExitTollGate | null) => {
+    if (!relation || !relation.entryToExitTimeWindows) {
+      console.log('🔍 [Entry-to-Exit Debug] normalizeEntryToExitTimeWindows - No relation or timeWindows:', {
+        hasRelation: !!relation,
+        hasTimeWindows: !!(relation?.entryToExitTimeWindows),
+        timeWindowsLength: relation?.entryToExitTimeWindows?.length || 0
+      });
+      return [];
+    }
+    
+    const normalized = relation.entryToExitTimeWindows.map(tw => ({
+      id: tw.id,
+      paymentCategoryTimeWindow: tw.paymentCategoryTimeWindow
+    }));
+    
+    console.log('🔍 [Entry-to-Exit Debug] normalizeEntryToExitTimeWindows result:', normalized);
+    
+    return normalized;
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -529,6 +799,30 @@ const Dashboard: React.FC = () => {
               <div className="text-sm text-gray-600">
                 Bienvenido, <span className="font-medium">{authState.user?.name || authState.user?.username}</span>
               </div>
+              <button
+                onClick={handleOpenMapModal}
+                disabled={mapLoading}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium flex items-center disabled:opacity-50"
+              >
+                {mapLoading ? (
+                  <>
+                    <div className="spinner h-4 w-4 mr-2" />
+                    Cargando...
+                  </>
+                ) : (
+                  <>
+                    <FontAwesomeIcon icon={faMapMarkedAlt} className="mr-2" />
+                    Ver Mapa
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => router.push('/payment-by-crane-route')}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium flex items-center"
+              >
+                <FontAwesomeIcon icon={faRoute} className="mr-2" />
+                Pago por Ruta
+              </button>
               <button
                 onClick={() => setShowConcessionaireView(true)}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center"
@@ -640,63 +934,169 @@ const Dashboard: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Sección de Valores de Pago */}
-                <PaymentValuesSection
-                  selectedTollGate={selectedTollGate}
-                  paymentValues={paymentValues}
-                  paymentCategories={paymentCategories}
-                  vehicleCategories={vehicleCategories}
-                  existingPaymentValues={currentConfig?.paymentValues || []}
-                  onAddPaymentValue={addPaymentValue}
-                  onUpdatePaymentValue={updatePaymentValue}
-                  onRemovePaymentValue={removePaymentValue}
-                  onVehicleCategoryChange={handleVehicleCategoryChange}
-                  getDuplicateWarning={getDuplicateWarningWrapper}
-                />
+                {/* Sección de Pórticos de Salida (solo para pórticos de entrada) */}
+                {selectedTollGate.isEntryorExit === 'ENTRY' && (
+                  <ExitTollGatesSection 
+                    selectedTollGate={selectedTollGate}
+                    selectedExitRelation={selectedExitRelation}
+                    onExitRelationSelect={handleExitRelationSelect}
+                  />
+                )}
 
-                {/* Sección de Ventanas de Tiempo */}
-                <TimeWindowsSection
-                  selectedTollGate={selectedTollGate}
-                  timeWindows={timeWindowsData}
-                  paymentCategories={paymentCategories}
-                  existingTimeWindows={currentConfig?.assignedTimeWindows || []}
-                  searchTerm={timeWindowSearchTerm}
-                  selectedCategory={selectedTimeWindowCategory}
-                  selectedDay={selectedTimeWindowDay}
-                  selectedTimeBlock={selectedTimeWindowBlock}
-                  onNewTimeWindow={() => setShowNewTimeWindowForm(true)}
-                  onAssignTimeWindows={() => setShowAssignTimeWindowForm(true)}
-                  onEditTimeWindow={handleEditTimeWindowWrapper}
-                  onDeleteTimeWindow={handleDeleteTimeWindow}
-                  onSearchChange={setTimeWindowSearchTerm}
-                  onCategoryChange={setSelectedTimeWindowCategory}
-                  onDayChange={setSelectedTimeWindowDay}
-                  onTimeBlockChange={setSelectedTimeWindowBlock}
-                  loading={configLoading}
-                />
-
-                {/* Botón de guardado */}
-                <div className="card">
-                  <div className="card-body">
-                    <button
-                      onClick={handleSaveConfig}
-                      disabled={loading || (paymentValues.length === 0 && selectedTimeWindows.length === 0)}
-                      className="btn-success w-full py-3 flex items-center justify-center"
-                    >
-                      {loading ? (
-                        <>
-                          <div className="spinner h-5 w-5 mr-2" />
-                          Guardando configuración...
-                        </>
-                      ) : (
-                        <>
-                          <FontAwesomeIcon icon={faSave} className="mr-2" />
-                          Guardar Configuración
-                        </>
-                      )}
-                    </button>
+                {/* Banner de relación Entry-to-Exit seleccionada */}
+                {selectedExitRelation && (
+                  <div className="card">
+                    <div className="card-body">
+                      <div className="bg-gradient-to-r from-green-50 to-red-50 border-2 border-dashed border-blue-400 rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center flex-1">
+                            <div className="flex items-center text-lg font-semibold text-gray-900">
+                              <div className="flex items-center px-3 py-1 bg-green-100 text-green-800 rounded-lg mr-2">
+                                <FontAwesomeIcon icon={faRoad} className="mr-2" />
+                                {selectedTollGate.name}
+                              </div>
+                              <span className="mx-3 text-blue-600">→</span>
+                              <div className="flex items-center px-3 py-1 bg-red-100 text-red-800 rounded-lg">
+                                <FontAwesomeIcon icon={faRoad} className="mr-2" />
+                                {selectedExitRelation.exitTollGate?.name}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-4">
+                            <div className="text-sm text-gray-600">
+                              <span className="font-medium">ID Relación:</span> {selectedExitRelation.id}
+                            </div>
+                            <button
+                              onClick={() => {
+                                setSelectedExitRelation(null);
+                                setSelectedExitRelationId(null);
+                              }}
+                              className="text-gray-400 hover:text-gray-600 transition-colors"
+                              title="Deseleccionar"
+                            >
+                              <FontAwesomeIcon icon={faTimes} />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="mt-2 text-sm text-gray-600">
+                          Configurando la relación entrada→salida. Los valores y ventanas que configures se aplicarán específicamente a esta ruta.
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {/* Mensaje informativo para pórticos de SALIDA */}
+                {selectedTollGate.isEntryorExit === 'EXIT' && (
+                  <div className="card">
+                    <div className="card-body">
+                      <div className="text-center py-8">
+                        <div className="text-6xl text-blue-300 mb-4">
+                          <FontAwesomeIcon icon={faInfoCircle} />
+                        </div>
+                        <h3 className="text-xl font-medium text-gray-900 mb-2">
+                          Pórtico de Salida
+                        </h3>
+                        <p className="text-gray-600 max-w-md mx-auto">
+                          Los pórticos de salida no se configuran directamente. 
+                          Su configuración de valores de pago y ventanas de tiempo se realiza 
+                          desde el pórtico de entrada correspondiente, en la relación entrada→salida.
+                        </p>
+                        <p className="text-gray-500 text-sm mt-4">
+                          Para configurar este pórtico, selecciona el pórtico de entrada asociado.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Secciones de Valores de Pago y Ventanas de Tiempo 
+                    - Para pórticos ENTRY: Solo si hay una relación entry-to-exit seleccionada
+                    - Para pórticos BOTH u otros: Siempre
+                    - Para pórticos EXIT: Nunca */}
+                {((selectedTollGate.isEntryorExit === 'ENTRY' && selectedExitRelation) || 
+                  (selectedTollGate.isEntryorExit !== 'ENTRY' && selectedTollGate.isEntryorExit !== 'EXIT')) && (
+                  <>
+                    {/* Sección de Valores de Pago */}
+                    <PaymentValuesSection
+                      selectedTollGate={selectedTollGate}
+                      paymentValues={paymentValues}
+                      paymentCategories={paymentCategories}
+                      vehicleCategories={vehicleCategories}
+                      existingPaymentValues={selectedExitRelation ? normalizeEntryToExitPaymentValues(selectedExitRelation) : (currentConfig?.paymentValues || [])}
+                      onAddPaymentValue={addPaymentValue}
+                      onUpdatePaymentValue={updatePaymentValue}
+                      onRemovePaymentValue={removePaymentValue}
+                      onVehicleCategoryChange={handleVehicleCategoryChange}
+                      getDuplicateWarning={getDuplicateWarningWrapper}
+                      entryToExitRelation={selectedExitRelation}
+                      onSavePaymentValues={handleSavePaymentValues}
+                      savingPaymentValues={savingPaymentValues}
+                    />
+
+                    {/* Sección de Ventanas de Tiempo */}
+                    {(() => {
+                      const existingTimeWindows = selectedExitRelation ? normalizeEntryToExitTimeWindows(selectedExitRelation) : (currentConfig?.assignedTimeWindows || []);
+                      
+                      // Debug: Log para diagnóstico
+                      console.log('🔍 [Dashboard Debug] selectedTollGate:', selectedTollGate?.name);
+                      console.log('🔍 [Dashboard Debug] currentConfig:', currentConfig);
+                      console.log('🔍 [Dashboard Debug] currentConfig?.assignedTimeWindows:', currentConfig?.assignedTimeWindows);
+                      console.log('🔍 [Dashboard Debug] selectedExitRelation:', selectedExitRelation);
+                      console.log('🔍 [Dashboard Debug] existingTimeWindows being passed:', existingTimeWindows);
+                      console.log('🔍 [Dashboard Debug] existingTimeWindows.length:', existingTimeWindows?.length || 0);
+                      
+                      return (
+                        <TimeWindowsSection
+                          selectedTollGate={selectedTollGate}
+                          timeWindows={timeWindowsData}
+                          paymentCategories={paymentCategories}
+                          existingTimeWindows={existingTimeWindows}
+                          searchTerm={timeWindowSearchTerm}
+                          selectedCategory={selectedTimeWindowCategory}
+                          selectedDay={selectedTimeWindowDay}
+                          selectedTimeBlock={selectedTimeWindowBlock}
+                          onNewTimeWindow={() => setShowNewTimeWindowForm(true)}
+                          onAssignTimeWindows={() => setShowAssignTimeWindowForm(true)}
+                          onEditTimeWindow={handleEditTimeWindowWrapper}
+                          onDeleteTimeWindow={handleDeleteTimeWindow}
+                          onSearchChange={setTimeWindowSearchTerm}
+                          onCategoryChange={setSelectedTimeWindowCategory}
+                          onDayChange={setSelectedTimeWindowDay}
+                          onTimeBlockChange={setSelectedTimeWindowBlock}
+                          loading={configLoading}
+                          entryToExitRelation={selectedExitRelation}
+                          selectedTimeWindowIds={selectedTimeWindows}
+                          onSaveTimeWindows={handleSaveTimeWindows}
+                          savingTimeWindows={savingTimeWindows}
+                        />
+                      );
+                    })()}
+
+                    {/* Botón de guardado */}
+                    <div className="card">
+                      <div className="card-body">
+                        <button
+                          onClick={handleSaveConfig}
+                          disabled={loading || (paymentValues.length === 0 && selectedTimeWindows.length === 0)}
+                          className="btn-success w-full py-3 flex items-center justify-center"
+                        >
+                          {loading ? (
+                            <>
+                              <div className="spinner h-5 w-5 mr-2" />
+                              Guardando configuración...
+                            </>
+                          ) : (
+                            <>
+                              <FontAwesomeIcon icon={faSave} className="mr-2" />
+                              Guardar Configuración
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <div className="card p-12 text-center">
@@ -756,6 +1156,7 @@ const Dashboard: React.FC = () => {
       <AssignTimeWindowModal
         isOpen={showAssignTimeWindowForm}
         selectedTollGate={selectedTollGate}
+        availableTimeWindows={convertTimeWindowsToPaymentCategory(timeWindowsData || [])}
         assignedTimeWindows={currentConfig?.assignedTimeWindows || []}
         paymentCategories={paymentCategories}
         selectedTimeWindowIds={selectedTimeWindows}
@@ -777,6 +1178,21 @@ const Dashboard: React.FC = () => {
         onTollGateSelect={(tollGate) => {
           setSelectedTollGate(tollGate);
           handleTollGateSelect(tollGate.id);
+        }}
+        onLoadConfigs={loadTollGateConfigsOnDemand}
+      />
+
+      {/* Modal del Mapa de Pórticos */}
+      <TollGateMapModal
+        isOpen={showMapModal}
+        tollGates={tollGates}
+        concessionaires={concessionaires}
+        loading={mapLoading}
+        onClose={() => setShowMapModal(false)}
+        onTollGateSelect={(tollGate) => {
+          setSelectedTollGate(tollGate);
+          handleTollGateSelect(tollGate.id);
+          setShowMapModal(false);
         }}
       />
     </div>

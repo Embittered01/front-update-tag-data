@@ -14,13 +14,23 @@ export const API_CONFIG = {
     },
     TOLL_GATES: {
       ALL: '/toll-gates/reference/all-toll-gates',
-      CRUD: '/toll-gates'
+      CRUD: '/toll-gates',
+      ASSIGN_PAYMENT_VALUES: '/payment-toll-gate/payment-values',
+      ASSIGN_TIME_WINDOWS: '/payment-toll-gate/time-windows',
+      EXIT_TOLL_GATES: '/toll-gates'
+    },
+    ENTRY_TO_EXIT: {
+      BASE: '/payment-toll-gate/entry-to-exit',
+      BY_ENTRY: '/payment-toll-gate/entry-to-exit/entry-toll-gate',
+      PAYMENT_VALUES: '/payment-toll-gate/entry-to-exit',
+      TIME_WINDOWS: '/payment-toll-gate/entry-to-exit'
     },
     PAYMENT_CATEGORIES: '/payment-toll-gate/categories',
     VEHICLE_CATEGORIES: '/payment-toll-gate/vehicle-categories',
     TIME_WINDOWS: '/payment-toll-gate/time-windows',
     CONCESSIONAIRES: '/concessionaires',
-    DIRECTION_TOLL_GATES: '/toll-gates/reference/direction-toll-gates'
+    DIRECTION_TOLL_GATES: '/toll-gates/reference/direction-toll-gates',
+    PAYMENT_BY_CRANE_ROUTE: '/tag/payment-by-crane-route'
   },
   SESSION_DURATION: 7 * 24 * 60 * 60 * 1000, // 7 días en milisegundos
   BATCH_SIZE: 10 // Tamaño de lote para carga de configuraciones
@@ -35,6 +45,7 @@ export const DAY_TYPES: Record<DayType, DayType> = {
   FRIDAY: 'FRIDAY',
   SATURDAY: 'SATURDAY',
   SUNDAY: 'SUNDAY',
+  HOLIDAY: 'HOLIDAY',
   ALL_DAYS: 'ALL_DAYS'
 } as const;
 
@@ -47,6 +58,7 @@ export const DAY_LABELS: Record<DayType, string> = {
   FRIDAY: 'Viernes',
   SATURDAY: 'Sábado',
   SUNDAY: 'Domingo',
+  HOLIDAY: 'Feriado',
   ALL_DAYS: 'Todos los días'
 } as const;
 
@@ -59,6 +71,7 @@ export const DAY_COLORS: Record<DayType, DayColorInfo> = {
   FRIDAY: { color: 'pink', bgColor: 'bg-pink-100', textColor: 'text-pink-800' },
   SATURDAY: { color: 'indigo', bgColor: 'bg-indigo-100', textColor: 'text-indigo-800' },
   SUNDAY: { color: 'red', bgColor: 'bg-red-100', textColor: 'text-red-800' },
+  HOLIDAY: { color: 'orange', bgColor: 'bg-orange-100', textColor: 'text-orange-800' },
   ALL_DAYS: { color: 'gray', bgColor: 'bg-gray-100', textColor: 'text-gray-800' }
 } as const;
 
@@ -114,7 +127,7 @@ export const DEFAULT_VALUES = {
     from: '',
     to: '',
     dayTypes: [] as DayType[],
-    paymentCategoryId: ''
+    paymentCategoryId: 0
   },
   NEW_PAYMENT_VALUE: {
     paymentCategoryId: '',

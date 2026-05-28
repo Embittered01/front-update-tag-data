@@ -16,7 +16,10 @@ import type {
   Concessionaire, 
   DirectionTollGate,
   ReferenceData,
-  ApiResponse 
+  ApiResponse,
+  EntryToExitTollGate,
+  CalculatePaymentToCraneDto,
+  PaymentByCraneRouteResponse
 } from '@/types';
 
 /**
@@ -56,7 +59,7 @@ export class BaseApiService {
 
     try {
       const response = await fetch(fullUrl, requestOptions);
-      
+      console.log('response', response);
       if (!response.ok) {
         let errorMessage = `Error ${response.status}`;
         
@@ -97,6 +100,10 @@ export class BaseApiService {
     return this.request<T>(url, {
       method: 'POST',
       body: data ? JSON.stringify(data) : undefined,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+      },
       ...options
     });
   }
@@ -178,11 +185,14 @@ export class TollGateService extends BaseApiService {
   }
 
   /**
-   * Carga configuraciones básicas de múltiples toll gates en lotes
+   * Carga configuraciones básicas de múltiples toll gates en lotes (solo cuando es necesario)
+   * @param tollGatesList Lista de toll gates para cargar configuraciones
+   * @param onlyIfNeeded Si es true, carga solo si realmente se necesita mostrar indicadores
    */
-  async loadAllTollGateConfigs(tollGatesList: TollGate[]): Promise<Record<number, TollGateConfigSummary>> {
+  async loadTollGateConfigsOnDemand(tollGatesList: TollGate[], onlyIfNeeded: boolean = true): Promise<Record<number, TollGateConfigSummary>> {
     if (!tollGatesList || tollGatesList.length === 0) return {};
 
+    console.log(`Loading configs for ${tollGatesList.length} toll gates (on-demand)`);
     const configs: Record<number, TollGateConfigSummary> = {};
     
     // Procesar en lotes para evitar sobrecarga
@@ -191,7 +201,7 @@ export class TollGateService extends BaseApiService {
       const batchPromises = batch.map(async (tollGate) => {
         
         try {
-          console.log('Loading toll gate config for', tollGate.id);
+          console.log(`Loading config for toll gate ${tollGate.name} (ID: ${tollGate.id})`);
           const config = await this.getTollGateConfig(tollGate.id);
           return { id: tollGate.id, config };
         } catch (error) {
@@ -205,9 +215,9 @@ export class TollGateService extends BaseApiService {
         if (config) {
           configs[id] = {
             hasPaymentValues: config.paymentValues && config.paymentValues.length > 0,
-            hasTimeWindows: config.timeWindows && config.timeWindows.length > 0,
+            hasTimeWindows: config.assignedTimeWindows && config.assignedTimeWindows.length > 0,
             paymentCount: config.paymentValues?.length || 0,
-            timeWindowCount: config.timeWindows?.length || 0
+            timeWindowCount: config.assignedTimeWindows?.length || 0
           };
         }
       });
@@ -222,11 +232,20 @@ export class TollGateService extends BaseApiService {
   }
 
   /**
+   * DEPRECATED: Usar loadTollGateConfigsOnDemand en su lugar
+   * @deprecated
+   */
+  async loadAllTollGateConfigs(tollGatesList: TollGate[]): Promise<Record<number, TollGateConfigSummary>> {
+    console.warn('loadAllTollGateConfigs is deprecated. Use loadTollGateConfigsOnDemand instead.');
+    return this.loadTollGateConfigsOnDemand(tollGatesList, false);
+  }
+
+  /**
    * Asigna ventanas de tiempo a un toll gate
    */
   async assignTimeWindows(tollGateId: number, timeWindowIds: number[]): Promise<ApiResponse> {
-    return this.post<ApiResponse>(`${API_CONFIG.ENDPOINTS.TOLL_GATES.CRUD}/${tollGateId}/assign-time-windows`, {
-      timeWindowIds
+    return this.post<ApiResponse>(`${API_CONFIG.ENDPOINTS.TOLL_GATES.ASSIGN_TIME_WINDOWS}/${tollGateId}`, {
+      timeWindows: timeWindowIds.map(id => ({ paymentCategoryTimeWindowId: id }))
     });
   }
 
@@ -234,7 +253,42 @@ export class TollGateService extends BaseApiService {
    * Guarda valores de pago y ventanas de tiempo para un toll gate
    */
   async saveTollGateConfig(tollGateId: number, configData: any): Promise<ApiResponse> {
-    return this.post<ApiResponse>(`${API_CONFIG.ENDPOINTS.TOLL_GATES.CRUD}/${tollGateId}/save-values-and-times`, configData);
+    return this.post<ApiResponse>(`${API_CONFIG.ENDPOINTS.TOLL_GATES.ASSIGN_PAYMENT_VALUES}/${tollGateId}`, configData);
+  }
+
+  /**
+   * Asigna valores de pago a un toll gate (nuevo endpoint por módulo)
+   */
+  async assignPaymentValues(tollGateId: number, paymentValues: Array<{
+    paymentCategoryId: number;
+    value: number;
+    vehicleCategoryIds?: number[];
+  }>): Promise<ApiResponse> {
+    return this.post<ApiResponse>(`${API_CONFIG.ENDPOINTS.TOLL_GATES.ASSIGN_PAYMENT_VALUES}/${tollGateId}`, {
+      paymentValues
+    });
+  }
+
+  /**
+   * Asigna ventanas de tiempo a un toll gate (nuevo endpoint por módulo)
+   */
+  async assignTimeWindowsToTollGate(tollGateId: number, timeWindows: Array<{
+    paymentCategoryTimeWindowId: number;
+  }>): Promise<ApiResponse> {
+    return this.post<ApiResponse>(`${API_CONFIG.ENDPOINTS.TOLL_GATES.ASSIGN_TIME_WINDOWS}/${tollGateId}`, {
+      timeWindows
+    });
+  }
+
+  /**
+   * Obtiene los pórticos de salida asignados a un pórtico de entrada
+   */
+  async getExitTollGates(entryTollGateId: number): Promise<TollGate[]> {
+    const url = `${API_CONFIG.ENDPOINTS.TOLL_GATES.EXIT_TOLL_GATES}/${entryTollGateId}/exit-toll-gates`;
+    console.log('TollGateService: getExitTollGates called with URL:', url);
+    const result = await this.get<TollGate[]>(url);
+    console.log('TollGateService: getExitTollGates result:', result);
+    return result;
   }
 }
 
@@ -320,6 +374,79 @@ export class DirectionTollGateService extends BaseApiService {
 }
 
 /**
+ * Servicio para cálculo de pago por ruta de grúa
+ */
+export class PaymentByCraneRouteService extends BaseApiService {
+  /**
+   * Calcula el pago por ruta de grúa entre dos coordenadas
+   */
+  async calculatePaymentByCraneRoute(data: CalculatePaymentToCraneDto): Promise<PaymentByCraneRouteResponse> {
+    return this.post<PaymentByCraneRouteResponse>(API_CONFIG.ENDPOINTS.PAYMENT_BY_CRANE_ROUTE, data);
+  }
+}
+
+/**
+ * Servicio para manejo de configuraciones Entry-to-Exit
+ */
+export class EntryToExitService extends BaseApiService {
+  /**
+   * Obtiene todas las relaciones entry-to-exit para un pórtico de entrada
+   */
+  async getEntryToExitRelations(entryTollGateId: number): Promise<EntryToExitTollGate[]> {
+    const url = `${API_CONFIG.ENDPOINTS.ENTRY_TO_EXIT.BY_ENTRY}/${entryTollGateId}`;
+    console.log('EntryToExitService: getEntryToExitRelations called with URL:', url);
+    const result = await this.get<EntryToExitTollGate[]>(url);
+    console.log('EntryToExitService: getEntryToExitRelations result:', result);
+    return result;
+  }
+
+  /**
+   * Obtiene una relación entry-to-exit específica con su configuración
+   */
+  async getEntryToExitConfig(entryToExitId: number): Promise<EntryToExitTollGate> {
+    return this.get<EntryToExitTollGate>(`${API_CONFIG.ENDPOINTS.ENTRY_TO_EXIT.BASE}/${entryToExitId}`);
+  }
+
+  /**
+   * Asigna valores de pago a una relación entry-to-exit
+   */
+  async assignPaymentValues(entryToExitId: number, paymentValues: any[]): Promise<ApiResponse> {
+    return this.post<ApiResponse>(
+      `${API_CONFIG.ENDPOINTS.ENTRY_TO_EXIT.PAYMENT_VALUES}/${entryToExitId}/payment-values`,
+      { paymentValues }
+    );
+  }
+
+  /**
+   * Asigna ventanas de tiempo a una relación entry-to-exit
+   */
+  async assignTimeWindows(entryToExitId: number, timeWindowIds: number[]): Promise<ApiResponse> {
+    return this.post<ApiResponse>(
+      `${API_CONFIG.ENDPOINTS.ENTRY_TO_EXIT.TIME_WINDOWS}/${entryToExitId}/time-windows`,
+      { timeWindows: timeWindowIds.map(id => ({ paymentCategoryTimeWindowId: id })) }
+    );
+  }
+
+  /**
+   * Elimina un valor de pago de una relación entry-to-exit
+   */
+  async deletePaymentValue(entryToExitId: number, paymentValueId: number): Promise<ApiResponse> {
+    return this.delete<ApiResponse>(
+      `${API_CONFIG.ENDPOINTS.ENTRY_TO_EXIT.PAYMENT_VALUES}/${entryToExitId}/payment-values/${paymentValueId}`
+    );
+  }
+
+  /**
+   * Elimina una ventana de tiempo de una relación entry-to-exit
+   */
+  async deleteTimeWindow(entryToExitId: number, timeWindowId: number): Promise<ApiResponse> {
+    return this.delete<ApiResponse>(
+      `${API_CONFIG.ENDPOINTS.ENTRY_TO_EXIT.TIME_WINDOWS}/${entryToExitId}/time-windows/${timeWindowId}`
+    );
+  }
+}
+
+/**
  * Clase principal que agrupa todos los servicios API
  */
 export class ApiService {
@@ -329,6 +456,8 @@ export class ApiService {
   public vehicleCategory: VehicleCategoryService;
   public concessionaire: ConcessionaireService;
   public directionTollGate: DirectionTollGateService;
+  public entryToExit: EntryToExitService;
+  public paymentByCraneRoute: PaymentByCraneRouteService;
 
   constructor(authService: AuthService) {
     this.tollGate = new TollGateService(authService);
@@ -337,6 +466,8 @@ export class ApiService {
     this.vehicleCategory = new VehicleCategoryService(authService);
     this.concessionaire = new ConcessionaireService(authService);
     this.directionTollGate = new DirectionTollGateService(authService);
+    this.entryToExit = new EntryToExitService(authService);
+    this.paymentByCraneRoute = new PaymentByCraneRouteService(authService);
   }
 
   /**

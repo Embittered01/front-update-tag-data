@@ -20,6 +20,7 @@ import type {
   TollGateConfigSummary,
   TimeWindowFormData,
   PaymentValue,
+  PaymentValueForm,
   TimeWindow,
   DayType,
   TimeWindowFilters,
@@ -246,28 +247,38 @@ export const useTollGateSelection = (tollGates: TollGate[], apiService: ApiServi
     }
   }, [apiService]);
 
-  const loadAllTollGateConfigs = useCallback(async (tollGatesList: TollGate[]) => {
-    if (!tollGatesList || tollGatesList.length === 0 || !apiService) return;
+  const loadTollGateConfigsOnDemand = useCallback(async (tollGatesList: TollGate[], onlyIfNeeded: boolean = true) => {
+    if (!tollGatesList || tollGatesList.length === 0 || !apiService) return {};
 
     // Prevent multiple simultaneous loads
     if (configLoadingRef.current) {
       console.log('Toll gate configs already loading, skipping...');
-      return;
+      return {};
     }
 
     configLoadingRef.current = true;
     setBulkConfigsLoading(true);
     try {
-      console.log('Loading toll gate configs for', tollGatesList.length, 'toll gates');
-      const configs = await apiService.tollGate.loadAllTollGateConfigs(tollGatesList);
-      setTollGateConfigs(configs);
+      console.log('Loading toll gate configs for', tollGatesList.length, 'toll gates (on-demand)');
+      const configs = await apiService.tollGate.loadTollGateConfigsOnDemand(tollGatesList, onlyIfNeeded);
+      
+      // Merge with existing configs instead of replacing
+      setTollGateConfigs(prev => ({ ...prev, ...configs }));
+      return configs;
     } catch (error) {
-      console.error('Error loading all toll gate configs:', error);
+      console.error('Error loading toll gate configs on demand:', error);
+      return {};
     } finally {
       setBulkConfigsLoading(false);
       configLoadingRef.current = false;
     }
   }, [apiService]);
+
+  // DEPRECATED: Mantener por compatibilidad
+  const loadAllTollGateConfigs = useCallback(async (tollGatesList: TollGate[]) => {
+    console.warn('loadAllTollGateConfigs is deprecated. Consider using loadTollGateConfigsOnDemand.');
+    return loadTollGateConfigsOnDemand(tollGatesList, false);
+  }, [loadTollGateConfigsOnDemand]);
 
   return {
     selectedTollGate,
@@ -278,7 +289,8 @@ export const useTollGateSelection = (tollGates: TollGate[], apiService: ApiServi
     bulkConfigsLoading,
     handleTollGateSelect,
     loadTollGateConfig,
-    loadAllTollGateConfigs,
+    loadTollGateConfigsOnDemand,
+    loadAllTollGateConfigs, // DEPRECATED - mantener por compatibilidad
     setCurrentConfig
   };
 };
@@ -354,7 +366,7 @@ export const useTollGateForm = () => {
  * Hook para manejo de configuración de pagos
  */
 export const usePaymentConfig = () => {
-  const [paymentValues, setPaymentValues] = useState<PaymentValue[]>([]);
+  const [paymentValues, setPaymentValues] = useState<PaymentValueForm[]>([]);
 
   const addPaymentValue = useCallback(() => {
     setPaymentValues(prev => [...prev, {
@@ -365,7 +377,7 @@ export const usePaymentConfig = () => {
     }]);
   }, []);
 
-  const updatePaymentValue = useCallback((index: number, field: keyof PaymentValue, value: any) => {
+  const updatePaymentValue = useCallback((index: number, field: keyof PaymentValueForm, value: any) => {
     setPaymentValues(prev => {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value };
@@ -386,7 +398,7 @@ export const usePaymentConfig = () => {
         }
       } else {
         updated[paymentIndex].vehicleCategoryIds = updated[paymentIndex].vehicleCategoryIds.filter(
-          id => id !== vehicleCategoryId
+          (id: number) => id !== vehicleCategoryId
         );
       }
       return updated;
@@ -496,6 +508,10 @@ export const useTimeWindows = () => {
         
         return { ...prev, dayTypes: newDayTypes };
       });
+    } else if (field === 'paymentCategoryId') {
+      // Convertir a número para paymentCategoryId
+      const numericValue = typeof value === 'string' ? Number(value) : (value as unknown as number);
+      setNewTimeWindow(prev => ({ ...prev, [field]: numericValue }));
     } else {
       setNewTimeWindow(prev => ({ ...prev, [field]: value }));
     }
@@ -512,7 +528,7 @@ export const useTimeWindows = () => {
       to: timeWindow.to,
       dayTypes: Array.isArray(timeWindow.dayTypes) ? timeWindow.dayTypes : 
                 timeWindow.dayType ? [timeWindow.dayType] : [],
-      paymentCategoryId: timeWindow.paymentCategory?.id?.toString() || ''
+      paymentCategoryId: timeWindow.paymentCategory?.id || timeWindow.paymentCategoryId || 0
     });
     setShowNewTimeWindowForm(true);
   }, []);

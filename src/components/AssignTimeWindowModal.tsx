@@ -26,6 +26,7 @@ import type {
 export interface AssignTimeWindowModalProps {
   isOpen: boolean;
   selectedTollGate: TollGate | null;
+  availableTimeWindows: PaymentCategoryTimeWindow[];
   assignedTimeWindows: AssignedTimeWindow[];
   paymentCategories: PaymentCategory[];
   selectedTimeWindowIds: number[];
@@ -43,12 +44,14 @@ const DAY_LABELS: Record<DayType, string> = {
   FRIDAY: "Vie",
   SATURDAY: "Sáb",
   SUNDAY: "Dom",
+  HOLIDAY: "Feriado",
   ALL_DAYS: "Todos",
 };
 
 export const AssignTimeWindowModal: React.FC<AssignTimeWindowModalProps> = ({
   isOpen,
   selectedTollGate,
+  availableTimeWindows,
   assignedTimeWindows,
   paymentCategories,
   selectedTimeWindowIds,
@@ -78,56 +81,69 @@ export const AssignTimeWindowModal: React.FC<AssignTimeWindowModalProps> = ({
 
   // Filtrar ventanas disponibles
   const filteredTimeWindows = useMemo(() => {
-    if (!isOpen || !selectedTollGate) return false;
+    if (!isOpen || !selectedTollGate || !availableTimeWindows) return [];
 
-    const paymentCategoryTimeWindows: PaymentCategoryTimeWindow[] = assignedTimeWindows.map((tw) => tw.paymentCategoryTimeWindow);
+    return availableTimeWindows.filter((tw) => {
+      // Validar que el timeWindow sea válido primero
+      if (!tw || !tw.from || !tw.to || !tw.paymentCategory) return false;
 
-    for (const paymentCategoryTimeWindow of paymentCategoryTimeWindows) {
-      if (!paymentCategoryTimeWindow || !paymentCategoryTimeWindow.from || !paymentCategoryTimeWindow.to) return false;
+      // Filtro por búsqueda de texto
+      const matchesSearch =
+        !searchTerm ||
+        tw.paymentCategory.name
+          .toLowerCase()
+          .includes(searchTerm.toLowerCase()) ||
+        tw.from.includes(searchTerm) ||
+        tw.to.includes(searchTerm);
 
+      // Filtro por categoría de pago
+      const matchesCategory =
+        !selectedCategory ||
+        tw.paymentCategory.id.toString() === selectedCategory;
 
-    // Validar que el timeWindow sea válido primero
-    const matchesSearch =
-      !searchTerm ||
-      paymentCategoryTimeWindow.paymentCategory?.name
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase()) ||
-      paymentCategoryTimeWindow.from.includes(searchTerm) ||
-      paymentCategoryTimeWindow.to.includes(searchTerm);
+      // Filtro por día
+      const matchesDay =
+        !selectedDay || 
+        tw.dayType === selectedDay || 
+        tw.dayType === "ALL_DAYS";
 
-    const matchesCategory =
-      !selectedCategory ||
-      paymentCategoryTimeWindow.paymentCategory?.id.toString() === selectedCategory;
-
-    const matchesDay =
-      !selectedDay || paymentCategoryTimeWindow.dayType === selectedDay || paymentCategoryTimeWindow.dayType === "ALL_DAYS";
-
-    return matchesSearch && matchesCategory && matchesDay;
-  }    }, [
+      return matchesSearch && matchesCategory && matchesDay;
+    });
+  }, [
     isOpen,
     selectedTollGate,
-    assignedTimeWindows,
+    availableTimeWindows,
     searchTerm,
     selectedCategory,
     selectedDay,
   ]);
 
-  // Agrupar por categoría
+  // Agrupar por categoría y luego por horario
   const groupedTimeWindows = useMemo(() => {
-    const groups: Record<string, PaymentCategoryTimeWindow[]> = {};
+    const groups: Record<string, Record<string, PaymentCategoryTimeWindow[]>> = {};
 
     // Los timeWindows ya vienen validados del filtro anterior
-    assignedTimeWindows.forEach((tw) => {
-      const categoryName = tw.paymentCategoryTimeWindow.paymentCategory?.name || "Sin categoría";
+    filteredTimeWindows.forEach((tw) => {
+      const categoryName = tw.paymentCategory?.name || "Sin categoría";
+      const timeKey = `${tw.from}-${tw.to}`;
+      
       if (!groups[categoryName]) {
-        groups[categoryName] = [];
+        groups[categoryName] = {};
       }
-      groups[categoryName].push(tw.paymentCategoryTimeWindow);
+      if (!groups[categoryName][timeKey]) {
+        groups[categoryName][timeKey] = [];
+      }
+      groups[categoryName][timeKey].push(tw);
     });
 
     // Ordenar dentro de cada grupo por hora de inicio
-    Object.keys(groups).forEach((key) => {
-      groups[key].sort((a, b) => a.from.localeCompare(b.from));
+    Object.keys(groups).forEach((categoryKey) => {
+      Object.keys(groups[categoryKey]).forEach((timeKey) => {
+        groups[categoryKey][timeKey].sort((a, b) => {
+          const dayOrder = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY', 'HOLIDAY', 'ALL_DAYS'];
+          return dayOrder.indexOf(a.dayType) - dayOrder.indexOf(b.dayType);
+        });
+      });
     });
 
     return groups;
@@ -144,7 +160,7 @@ export const AssignTimeWindowModal: React.FC<AssignTimeWindowModalProps> = ({
   };
 
   const handleSelectAll = () => {
-    const allIds = assignedTimeWindows.map((tw) => tw.id);
+    const allIds = filteredTimeWindows.map((tw) => tw.id);
     const areAllSelected = allIds.every((id) =>
       selectedTimeWindowIds.includes(id)
     );
@@ -160,8 +176,8 @@ export const AssignTimeWindowModal: React.FC<AssignTimeWindowModalProps> = ({
     }
   };
 
-  const handleCategoryToggle = (categoryWindows: PaymentCategoryTimeWindow[]) => {
-    const categoryIds = categoryWindows.map((tw) => tw.id);
+  const handleCategoryToggle = (categoryWindows: Record<string, PaymentCategoryTimeWindow[]>) => {
+    const categoryIds = Object.values(categoryWindows).flat().map((tw) => tw.id);
     const areAllSelected = categoryIds.every((id) =>
       selectedTimeWindowIds.includes(id)
     );
@@ -175,6 +191,25 @@ export const AssignTimeWindowModal: React.FC<AssignTimeWindowModalProps> = ({
       // Seleccionar toda la categoría
       onSelectionChange([
         ...new Set([...selectedTimeWindowIds, ...categoryIds]),
+      ]);
+    }
+  };
+
+  const handleTimeSlotToggle = (timeSlotWindows: PaymentCategoryTimeWindow[]) => {
+    const slotIds = timeSlotWindows.map((tw) => tw.id);
+    const areAllSelected = slotIds.every((id) =>
+      selectedTimeWindowIds.includes(id)
+    );
+
+    if (areAllSelected) {
+      // Deseleccionar todo el slot de tiempo
+      onSelectionChange(
+        selectedTimeWindowIds.filter((id) => !slotIds.includes(id))
+      );
+    } else {
+      // Seleccionar todo el slot de tiempo
+      onSelectionChange([
+        ...new Set([...selectedTimeWindowIds, ...slotIds]),
       ]);
     }
   };
@@ -197,8 +232,8 @@ export const AssignTimeWindowModal: React.FC<AssignTimeWindowModalProps> = ({
   };
 
   const allFilteredSelected =
-    assignedTimeWindows.length > 0 &&
-    assignedTimeWindows.every((tw) => selectedTimeWindowIds.includes(tw.id));
+    filteredTimeWindows.length > 0 &&
+    filteredTimeWindows.every((tw) => selectedTimeWindowIds.includes(tw.id));
 
   return (
     <div className="fixed inset-0 bg-black/25 flex items-center justify-center p-4 z-50">
@@ -237,6 +272,7 @@ export const AssignTimeWindowModal: React.FC<AssignTimeWindowModalProps> = ({
             {selectedTimeWindowIds.length !== 1 ? "s" : ""}
           </div>
         </div>
+
 
         {/* Filtros */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 p-4 bg-gray-50 rounded-lg">
@@ -311,9 +347,9 @@ export const AssignTimeWindowModal: React.FC<AssignTimeWindowModalProps> = ({
           </div>
 
           <div className="text-sm text-gray-600">
-            {assignedTimeWindows.length} ventana
-            {assignedTimeWindows.length !== 1 ? "s" : ""} disponible
-            {assignedTimeWindows.length !== 1 ? "s" : ""}
+            {filteredTimeWindows.length} ventana
+            {filteredTimeWindows.length !== 1 ? "s" : ""} disponible
+            {filteredTimeWindows.length !== 1 ? "s" : ""}
           </div>
         </div>
 
@@ -333,8 +369,8 @@ export const AssignTimeWindowModal: React.FC<AssignTimeWindowModalProps> = ({
           ) : (
             <div className="space-y-4">
               {Object.entries(groupedTimeWindows).map(
-                ([categoryName, windows]) => {
-                  const categoryIds = windows.map((tw) => tw.paymentCategory.id);
+                ([categoryName, timeSlots]) => {
+                  const categoryIds = Object.values(timeSlots).flat().map((tw) => tw.id);
                   const allCategorySelected = categoryIds.every((id) =>
                     selectedTimeWindowIds.includes(id)
                   );
@@ -350,7 +386,7 @@ export const AssignTimeWindowModal: React.FC<AssignTimeWindowModalProps> = ({
                       <div className="bg-gray-100 px-4 py-3 border-b border-gray-200">
                         <button
                           type="button"
-                          onClick={() => handleCategoryToggle(windows)}
+                          onClick={() => handleCategoryToggle(timeSlots)}
                           className="flex items-center justify-between w-full text-left hover:bg-gray-200 transition-colors rounded -mx-4 px-4 py-2"
                         >
                           <div className="flex items-center">
@@ -375,64 +411,96 @@ export const AssignTimeWindowModal: React.FC<AssignTimeWindowModalProps> = ({
                             </h4>
                           </div>
                           <span className="px-2 py-1 bg-gray-200 text-gray-700 text-xs rounded-full">
-                            {windows.length}
+                            {categoryIds.length}
                           </span>
                         </button>
                       </div>
 
                       <div className="divide-y divide-gray-200">
-                        {windows.map((tw) => {
-                          const isSelected = selectedTimeWindowIds.includes(
-                            tw.id
+                        {Object.entries(timeSlots).map(([timeKey, windows]) => {
+                          const slotIds = windows.map((tw) => tw.id);
+                          const allSlotSelected = slotIds.every((id) =>
+                            selectedTimeWindowIds.includes(id)
                           );
+                          const someSlotSelected = slotIds.some((id) =>
+                            selectedTimeWindowIds.includes(id)
+                          );
+                          const firstWindow = windows[0];
 
                           return (
-                            <label
-                              key={tw.id}
-                              className={`flex items-center p-4 cursor-pointer hover:bg-gray-50 transition-colors ${
-                                isSelected ? "bg-blue-50" : ""
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => handleTimeWindowToggle(tw.id)}
-                                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 mr-3"
-                              />
-
-                              <div className="flex-1 flex items-center justify-between">
-                                <div>
-                                  <div className="flex items-center space-x-4 mb-1">
-                                    <div className="flex items-center font-semibold text-gray-800">
-                                      <FontAwesomeIcon
-                                        icon={faClock}
-                                        className="mr-2 text-blue-500"
-                                      />
-                                      {formatTimeRange(tw.from, tw.to)}
-                                    </div>
-                                    <div className="flex items-center text-sm text-gray-600">
-                                      <FontAwesomeIcon
-                                        icon={faCalendarDay}
-                                        className="mr-1"
-                                      />
-                                      {tw.dayType
-                                        ? DAY_LABELS[tw.dayType] || tw.dayType
-                                        : "N/A"}
-                                    </div>
+                            <div key={timeKey} className="p-4">
+                              {/* Header del slot de tiempo */}
+                              <div className="flex items-center mb-3">
+                                <button
+                                  type="button"
+                                  onClick={() => handleTimeSlotToggle(windows)}
+                                  className="flex items-center text-left hover:bg-gray-50 transition-colors rounded p-2 -m-2"
+                                >
+                                  <FontAwesomeIcon
+                                    icon={allSlotSelected ? faCheckSquare : faSquare}
+                                    className={`mr-3 ${
+                                      allSlotSelected
+                                        ? "text-blue-600"
+                                        : someSlotSelected
+                                        ? "text-blue-400"
+                                        : "text-gray-400"
+                                    }`}
+                                  />
+                                  <div className="flex items-center font-semibold text-gray-800">
+                                    <FontAwesomeIcon
+                                      icon={faClock}
+                                      className="mr-2 text-blue-500"
+                                    />
+                                    {formatTimeRange(firstWindow.from, firstWindow.to)}
                                   </div>
+                                </button>
+                                
+                                {firstWindow.from >= firstWindow.to && (
+                                  <div className="inline-flex items-center px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full ml-3">
+                                    <FontAwesomeIcon
+                                      icon={faInfoCircle}
+                                      className="mr-1"
+                                    />
+                                    Cruza medianoche
+                                  </div>
+                                )}
+                              </div>
 
-                                  {tw.from >= tw.to && (
-                                    <div className="inline-flex items-center px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full">
-                                      <FontAwesomeIcon
-                                        icon={faInfoCircle}
-                                        className="mr-1"
-                                      />
-                                      Cruza medianoche
-                                    </div>
-                                  )}
+                              {/* Días disponibles */}
+                              <div className="ml-8">
+                                <div className="text-sm text-gray-600 mb-2 flex items-center">
+                                  <FontAwesomeIcon
+                                    icon={faCalendarDay}
+                                    className="mr-1"
+                                  />
+                                  Seleccionar días:
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  {windows.map((tw) => {
+                                    const isSelected = selectedTimeWindowIds.includes(tw.id);
+                                    
+                                    return (
+                                      <label
+                                        key={tw.id}
+                                        className={`inline-flex items-center px-3 py-1 rounded-full text-sm cursor-pointer transition-colors ${
+                                          isSelected
+                                            ? "bg-blue-100 text-blue-800 border border-blue-200"
+                                            : "bg-gray-100 text-gray-700 border border-gray-200 hover:bg-gray-200"
+                                        }`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          onChange={() => handleTimeWindowToggle(tw.id)}
+                                          className="sr-only"
+                                        />
+                                        <span>{DAY_LABELS[tw.dayType] || tw.dayType}</span>
+                                      </label>
+                                    );
+                                  })}
                                 </div>
                               </div>
-                            </label>
+                            </div>
                           );
                         })}
                       </div>

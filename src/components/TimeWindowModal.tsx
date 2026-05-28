@@ -25,6 +25,7 @@ const DAY_LABELS: Record<DayType, string> = {
   FRIDAY: 'Viernes',
   SATURDAY: 'Sábado',
   SUNDAY: 'Domingo',
+  HOLIDAY: 'Feriado',
   ALL_DAYS: 'Todos los días'
 };
 
@@ -35,7 +36,8 @@ const DAY_COLORS: Record<DayType, string> = {
   THURSDAY: 'bg-purple-500',
   FRIDAY: 'bg-pink-500',
   SATURDAY: 'bg-indigo-500',
-  SUNDAY: 'bg-red-500',
+  SUNDAY: 'bg-orange-500',
+  HOLIDAY: 'bg-red-500',
   ALL_DAYS: 'bg-gray-800'
 };
 
@@ -166,7 +168,7 @@ export const TimeWindowModal: React.FC<TimeWindowModalProps> = ({
             <div className="flex items-center text-sm text-blue-700">
               <FontAwesomeIcon icon={faInfoCircle} className="mr-2" />
               <span className="font-medium">
-                Editando: {editingTimeWindow.paymentCategory?.name} - {DAY_LABELS[editingTimeWindow.dayType]}
+                Editando: {editingTimeWindow.paymentCategory?.name} - {DAY_LABELS[editingTimeWindow.dayType as DayType]}
               </span>
             </div>
             <div className="text-xs text-blue-600 mt-1">
@@ -183,7 +185,7 @@ export const TimeWindowModal: React.FC<TimeWindowModalProps> = ({
                 Categoría de Pago <span className="text-red-500">*</span>
               </label>
               <select
-                value={newTimeWindow.paymentCategoryId}
+                value={newTimeWindow.paymentCategoryId || ''}
                 onChange={(e) => onChange('paymentCategoryId', e.target.value)}
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 required
@@ -274,7 +276,7 @@ export const TimeWindowModal: React.FC<TimeWindowModalProps> = ({
 
                 {/* Días específicos */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {(['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'] as DayType[]).map(day => {
+                  {(['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY', 'HOLIDAY'] as DayType[]).map(day => {
                     const isSelected = selectedDays.includes(day);
                     const isDisabled = hasAllDays || loading;
                     
@@ -314,7 +316,7 @@ export const TimeWindowModal: React.FC<TimeWindowModalProps> = ({
                   <div className="font-medium mb-2">Resumen de la ventana de tiempo:</div>
                   <div className="space-y-1">
                     <div>⏰ <strong>Horario:</strong> {newTimeWindow.from} - {newTimeWindow.to}</div>
-                    <div>📋 <strong>Categoría:</strong> {paymentCategories.find(pc => pc.id.toString() === newTimeWindow.paymentCategoryId)?.name}</div>
+                    <div>📋 <strong>Categoría:</strong> {paymentCategories.find(pc => pc.id === newTimeWindow.paymentCategoryId)?.name}</div>
                     <div>📅 <strong>Días:</strong> {hasAllDays ? 'Todos los días' : selectedDays.map(d => DAY_LABELS[d]).join(', ')}</div>
                     <div>🔢 <strong>Ventanas a crear:</strong> {editingTimeWindow ? `Actualizar + ${selectedDays.length - 1} adicionales` : selectedDays.length}</div>
                   </div>

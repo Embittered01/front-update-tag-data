@@ -98,7 +98,7 @@ export const TollGateModal: React.FC<TollGateModalProps> = ({
                 </label>
                 <input
                   type="text"
-                  value={newTollGate.portico}
+                  value={newTollGate.portico || ''}
                   onChange={handleInputChange('portico')}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   placeholder="Número de pórtico"

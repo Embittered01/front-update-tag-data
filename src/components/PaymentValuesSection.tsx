@@ -2,8 +2,8 @@
 
 import React from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPlus, faTrash, faDollarSign, faTag, faCar, faExclamationTriangle, faInfoCircle } from '@fortawesome/free-solid-svg-icons';
-import type { PaymentCategory, VehicleCategory, PaymentValue, PaymentValueForm, TollGate } from '@/types';
+import { faPlus, faTrash, faDollarSign, faTag, faCar, faExclamationTriangle, faInfoCircle, faSave } from '@fortawesome/free-solid-svg-icons';
+import type { PaymentCategory, VehicleCategory, PaymentValue, PaymentValueForm, TollGate, EntryToExitTollGate } from '@/types';
 
 export interface PaymentValuesSectionProps {
   selectedTollGate: TollGate | null;
@@ -16,6 +16,9 @@ export interface PaymentValuesSectionProps {
   onRemovePaymentValue: (index: number) => void;
   onVehicleCategoryChange: (paymentIndex: number, vehicleCategoryId: number, checked: boolean) => void;
   getDuplicateWarning: (paymentCategoryId: string, vehicleCategoryIds: number[], currentIndex: number) => { type: string; message: string } | null;
+  entryToExitRelation?: EntryToExitTollGate | null;
+  onSavePaymentValues?: () => Promise<void>;
+  savingPaymentValues?: boolean;
 }
 
 export const PaymentValuesSection: React.FC<PaymentValuesSectionProps> = ({
@@ -28,7 +31,10 @@ export const PaymentValuesSection: React.FC<PaymentValuesSectionProps> = ({
   onUpdatePaymentValue,
   onRemovePaymentValue,
   onVehicleCategoryChange,
-  getDuplicateWarning
+  getDuplicateWarning,
+  entryToExitRelation,
+  onSavePaymentValues,
+  savingPaymentValues = false
 }) => {
   if (!selectedTollGate) {
     return (
@@ -38,6 +44,15 @@ export const PaymentValuesSection: React.FC<PaymentValuesSectionProps> = ({
       </div>
     );
   }
+
+  // Determinar si estamos en modo entry-to-exit
+  const isEntryToExitMode = !!entryToExitRelation;
+  
+  // Debug: Log para diagnóstico
+  console.log('🔍 [PaymentValues Debug] isEntryToExitMode:', isEntryToExitMode);
+  console.log('🔍 [PaymentValues Debug] entryToExitRelation:', entryToExitRelation);
+  console.log('🔍 [PaymentValues Debug] existingPaymentValues:', existingPaymentValues);
+  console.log('🔍 [PaymentValues Debug] existingPaymentValues.length:', existingPaymentValues?.length || 0);
 
   const formatCurrency = (value: string | number) => {
     const numValue = typeof value === 'string' ? parseFloat(value) : value;
@@ -71,7 +86,10 @@ export const PaymentValuesSection: React.FC<PaymentValuesSectionProps> = ({
         <div className="mb-6">
           <h4 className="text-md font-medium text-gray-700 mb-3 flex items-center">
             <FontAwesomeIcon icon={faInfoCircle} className="mr-2 text-blue-500" />
-            Valores Configurados en el Pórtico ({existingPaymentValues.length})
+            {isEntryToExitMode ? 
+              `Valores Configurados en la Relación (${existingPaymentValues.length})` : 
+              `Valores Configurados en el Pórtico (${existingPaymentValues.length})`
+            }
           </h4>
           
           <div className="space-y-3 max-h-64 overflow-y-auto">
@@ -122,7 +140,10 @@ export const PaymentValuesSection: React.FC<PaymentValuesSectionProps> = ({
               No hay valores de pago nuevos
             </h4>
             <p className="text-gray-500 mb-4">
-              Agrega valores de pago para configurar las tarifas de este pórtico
+              {isEntryToExitMode ? 
+                'Agrega valores de pago para configurar las tarifas de esta relación entrada→salida' :
+                'Agrega valores de pago para configurar las tarifas de este pórtico'
+              }
             </p>
             <button
               type="button"
@@ -290,18 +311,44 @@ export const PaymentValuesSection: React.FC<PaymentValuesSectionProps> = ({
         )}
       </div>
 
-      {/* Resumen total */}
+      {/* Resumen total y botón de guardar */}
       {paymentValues.length > 0 && (
-        <div className="mt-6 p-4 bg-green-50 rounded-lg border border-green-200">
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-green-700">
-              <FontAwesomeIcon icon={faInfoCircle} className="mr-2" />
-              Total de valores configurados: <strong>{paymentValues.length}</strong>
-            </div>
-            <div className="text-sm text-green-600">
-              {paymentValues.filter(pv => pv.paymentCategoryId && pv.value).length} completados
+        <div className="mt-6 space-y-4">
+          <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-green-700">
+                <FontAwesomeIcon icon={faInfoCircle} className="mr-2" />
+                Total de valores configurados: <strong>{paymentValues.length}</strong>
+              </div>
+              <div className="text-sm text-green-600">
+                {paymentValues.filter(pv => pv.paymentCategoryId && pv.value).length} completados
+              </div>
             </div>
           </div>
+          
+          {/* Botón de guardar valores de pago */}
+          {onSavePaymentValues && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={onSavePaymentValues}
+                disabled={savingPaymentValues || paymentValues.filter(pv => pv.paymentCategoryId && pv.value).length === 0}
+                className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {savingPaymentValues ? (
+                  <>
+                    <div className="spinner h-5 w-5 mr-2" />
+                    Guardando valores...
+                  </>
+                ) : (
+                  <>
+                    <FontAwesomeIcon icon={faSave} className="mr-2" />
+                    Guardar Valores de Pago
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

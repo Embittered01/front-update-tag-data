@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
   faTimes,
@@ -22,6 +22,7 @@ export interface ConcessionaireViewModalProps {
   onClose: () => void;
   onConcessionaireChange: (concessionaireId: string) => void;
   onTollGateSelect: (tollGate: TollGate) => void;
+  onLoadConfigs?: (tollGates: TollGate[]) => Promise<Record<number, TollGateConfigSummary>>;
 }
 
 export const ConcessionaireViewModal: React.FC<ConcessionaireViewModalProps> = ({
@@ -32,9 +33,45 @@ export const ConcessionaireViewModal: React.FC<ConcessionaireViewModalProps> = (
   selectedConcessionaireForView,
   onClose,
   onConcessionaireChange,
-  onTollGateSelect
+  onTollGateSelect,
+  onLoadConfigs
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [loadingConfigs, setLoadingConfigs] = useState(false);
+  const lastLoadedConcessionaireRef = useRef<string>('');
+
+  // Cargar configuraciones bajo demanda cuando cambie el concesionario seleccionado
+  useEffect(() => {
+    if (!isOpen || !selectedConcessionaireForView || !onLoadConfigs) return;
+    
+    // Evitar recargar si ya se cargó para este concesionario
+    if (lastLoadedConcessionaireRef.current === selectedConcessionaireForView) return;
+    
+    const loadConfigsForConcessionaire = async () => {
+      const concessionaireTollGates = tollGates.filter(
+        tg => tg.concessionaireId.toString() === selectedConcessionaireForView
+      );
+      
+      if (concessionaireTollGates.length === 0) return;
+      
+      // Verificar si ya tenemos las configuraciones para todos los pórticos de este concesionario
+      const hasAllConfigs = concessionaireTollGates.every(tg => tollGateConfigs[tg.id]);
+      if (hasAllConfigs) return;
+      
+      setLoadingConfigs(true);
+      try {
+        console.log(`Loading configs for ${concessionaireTollGates.length} toll gates of concessionaire ${selectedConcessionaireForView}`);
+        await onLoadConfigs(concessionaireTollGates);
+        lastLoadedConcessionaireRef.current = selectedConcessionaireForView;
+      } catch (error) {
+        console.error('Error loading configs for concessionaire:', error);
+      } finally {
+        setLoadingConfigs(false);
+      }
+    };
+    
+    loadConfigsForConcessionaire();
+  }, [isOpen, selectedConcessionaireForView, tollGates, onLoadConfigs, tollGateConfigs]);
 
   // Filtrar toll gates por concesionario seleccionado
   const filteredTollGates = useMemo(() => {
@@ -198,6 +235,14 @@ export const ConcessionaireViewModal: React.FC<ConcessionaireViewModalProps> = (
 
                 {/* Lista de pórticos */}
                 <div className="flex-1 overflow-y-auto">
+                  {loadingConfigs && (
+                    <div className="p-4 bg-blue-50 border-b border-blue-200">
+                      <div className="flex items-center text-blue-700">
+                        <div className="spinner h-4 w-4 mr-2" />
+                        <span className="text-sm">Cargando configuraciones de pórticos...</span>
+                      </div>
+                    </div>
+                  )}
                   {filteredTollGates.length === 0 ? (
                     <div className="flex items-center justify-center h-full text-gray-500">
                       <div className="text-center">

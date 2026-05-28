@@ -2,14 +2,16 @@
 
 import React, { useMemo } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { 
-  faRoad, 
-  faMapMarkerAlt, 
-  faBuilding, 
+import {
+  faRoad,
+  faMapMarkerAlt,
+  faBuilding,
   faSearch,
   faPlus,
   faEdit,
-  faTrash
+  faTrash,
+  faSignInAlt,
+  faSignOutAlt
 } from '@fortawesome/free-solid-svg-icons';
 import type { TollGate, Concessionaire } from '@/types';
 
@@ -45,15 +47,15 @@ export const TollGateList: React.FC<TollGateListProps> = ({
   // Filtrar toll gates según el término de búsqueda y concesionario seleccionado (memoizado)
   const filteredTollGates = useMemo(() => {
     return tollGates.filter(tollGate => {
-      const matchesSearch = !searchTerm || 
+      const matchesSearch = !searchTerm ||
         tollGate.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         tollGate.portico?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         tollGate.concessionaire?.name?.toLowerCase().includes(searchTerm.toLowerCase());
-      
-      const matchesConcessionaire = !selectedConcessionaire || 
+
+      const matchesConcessionaire = !selectedConcessionaire ||
         selectedConcessionaire === '' ||
         tollGate.concessionaireId.toString() === selectedConcessionaire;
-      
+
       return matchesSearch && matchesConcessionaire;
     });
   }, [tollGates, searchTerm, selectedConcessionaire]);
@@ -65,6 +67,36 @@ export const TollGateList: React.FC<TollGateListProps> = ({
       return concessionaireMap.get(concessionaireId) || 'N/A';
     };
   }, [concessionaires]);
+
+  // Función para obtener información del tipo de pórtico
+  const getTollGateTypeInfo = (isEntryorExit: string) => {
+    switch (isEntryorExit) {
+      case 'ENTRY':
+        return {
+          label: 'Entrada',
+          icon: faSignInAlt,
+          bgColor: 'bg-green-100',
+          textColor: 'text-green-800',
+          borderColor: 'border-green-300'
+        };
+      case 'EXIT':
+        return {
+          label: 'Salida',
+          icon: faSignOutAlt,
+          bgColor: 'bg-red-100',
+          textColor: 'text-red-800',
+          borderColor: 'border-red-300'
+        };
+      default:
+        return {
+          label: 'No definido',
+          icon: faRoad,
+          bgColor: 'bg-gray-100',
+          textColor: 'text-gray-800',
+          borderColor: 'border-gray-300'
+        };
+    }
+  };
 
   if (loading) {
     return (
@@ -90,15 +122,15 @@ export const TollGateList: React.FC<TollGateListProps> = ({
           Pórticos ({filteredTollGates.length})
         </h3>
       </div>
-      
+
       <div className="card-body">
         {/* Controles de búsqueda y filtrado */}
         <div className="space-y-3 mb-4">
           {/* Búsqueda */}
           <div className="relative">
-            <FontAwesomeIcon 
-              icon={faSearch} 
-              className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm" 
+            <FontAwesomeIcon
+              icon={faSearch}
+              className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 text-sm"
             />
             <input
               type="text"
@@ -108,7 +140,7 @@ export const TollGateList: React.FC<TollGateListProps> = ({
               className="input pl-10 h-10 w-full border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
-          
+
           {/* Filtro por concesionario */}
           <select
             value={selectedConcessionaire}
@@ -140,7 +172,7 @@ export const TollGateList: React.FC<TollGateListProps> = ({
           <div className="text-center py-8">
             <FontAwesomeIcon icon={faRoad} className="text-gray-300 text-4xl mb-4" />
             <p className="text-gray-500">
-              {tollGates.length === 0 
+              {tollGates.length === 0
                 ? 'No hay pórticos disponibles'
                 : 'No se encontraron pórticos con los filtros aplicados'}
             </p>
@@ -165,22 +197,34 @@ export const TollGateList: React.FC<TollGateListProps> = ({
                       <h4 className="text-sm font-medium text-gray-900 truncate">
                         {tollGate.name}
                       </h4>
+                      {/* Badge del tipo de pórtico */}
+                      {tollGate.isEntryorExit && (
+                        <div className={`ml-2 px-2 py-1 rounded-full text-xs font-medium border ${getTollGateTypeInfo(tollGate.isEntryorExit).bgColor} ${getTollGateTypeInfo(tollGate.isEntryorExit).textColor} ${getTollGateTypeInfo(tollGate.isEntryorExit).borderColor}`}>
+                          <FontAwesomeIcon icon={getTollGateTypeInfo(tollGate.isEntryorExit).icon} className="mr-1" />
+                          {getTollGateTypeInfo(tollGate.isEntryorExit).label}
+                        </div>
+                      )}
                     </div>
-                    
+
                     {/* Detalles */}
                     <div className="space-y-1 text-xs text-gray-500">
                       <div className="flex items-center">
                         <FontAwesomeIcon icon={faMapMarkerAlt} className="mr-1 w-3" />
                         <span className="truncate">Pórtico: {tollGate.portico ?? 'N/A'}</span>
                       </div>
-                      
+
                       <div className="flex items-center">
                         <FontAwesomeIcon icon={faBuilding} className="mr-1 w-3" />
                         <span className="truncate">
                           {getConcessionaireName(tollGate.concessionaireId)}
                         </span>
                       </div>
-                      
+
+                      <div className="flex items-center">
+                        <FontAwesomeIcon icon={faBuilding} className="mr-1 w-3" />
+                        <span className="truncate">Dirección: {tollGate.directiontollgate?.abbreviation ?? 'N/A'}</span>
+                      </div>
+
                       {tollGate.latitude && tollGate.longitude && (
                         <div className="flex items-center">
                           <FontAwesomeIcon icon={faMapMarkerAlt} className="mr-1 w-3" />
@@ -191,7 +235,7 @@ export const TollGateList: React.FC<TollGateListProps> = ({
                       )}
                     </div>
                   </div>
-                  
+
                   {/* Botones de acción */}
                   <div className="flex items-center space-x-1 ml-2">
                     <button
@@ -204,7 +248,7 @@ export const TollGateList: React.FC<TollGateListProps> = ({
                     >
                       <FontAwesomeIcon icon={faEdit} className="text-xs" />
                     </button>
-                    
+
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -219,13 +263,20 @@ export const TollGateList: React.FC<TollGateListProps> = ({
                     </button>
                   </div>
                 </div>
-                
+
                 {/* Indicador de selección */}
                 {selectedTollGate?.id === tollGate.id && (
                   <div className="mt-2 text-xs text-blue-600 font-medium">
                     ✓ Seleccionado
                   </div>
                 )}
+
+                {/* Hint para ver estado de configuración */}
+                {/* {!selectedTollGate?.id || selectedTollGate?.id !== tollGate.id ? (
+                  <div className="mt-2 text-xs text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                    Ver estado en "Vista por Concesionario"
+                  </div>
+                ) : null} */}
               </div>
             ))}
           </div>

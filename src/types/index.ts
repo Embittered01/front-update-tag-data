@@ -37,7 +37,8 @@ export interface TollGate {
   directionId?: number;
   isEntryorExit: string;
   concessionaire?: Concessionaire;
-  direction?: DirectionTollGate;
+  directiontollgate?: DirectionTollGate;
+  exitTollGates?: TollGate[]; // Pórticos de salida asignados (solo para pórticos de entrada)
 }
 
 export interface TollGateFormData {
@@ -88,8 +89,18 @@ export interface PaymentValueForm {
   vehicleCategoryIds: number[];
 }
 
+// Interfaz para datos enviados a la API (números)
+export interface PaymentValueApi {
+  id?: number;
+  paymentCategoryId: number;
+  vehicleCategoryIds: number[];
+  value: number;
+  paymentCategory?: PaymentCategory;
+  vehicleCategories?: VehicleCategory[];
+}
+
 // Time Window Types
-export type DayType = 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY' | 'ALL_DAYS';
+export type DayType = 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY' | 'HOLIDAY' | 'ALL_DAYS';
 
 export interface TimeWindow {
   id: number;
@@ -97,7 +108,7 @@ export interface TimeWindow {
   to: string;
   dayTypes: DayType[];
   dayType?: DayType; // Legacy support
-  paymentCategoryId: string;
+  paymentCategoryId: number;
   paymentCategory?: PaymentCategory;
 }
 
@@ -118,7 +129,7 @@ export interface TimeWindowFormData {
   from: string;
   to: string;
   dayTypes: DayType[];
-  paymentCategoryId: string;
+  paymentCategoryId: number;
 }
 
 // Configuration Types
@@ -156,6 +167,7 @@ export interface DirectionTollGate {
   id: number;
   name: string;
   description?: string;
+  abbreviation?: string;
 }
 
 export interface ReferenceData {
@@ -175,6 +187,48 @@ export interface Message {
 
 export interface LoadingStates {
   [key: string]: boolean;
+}
+
+// Entry-to-Exit Types
+export interface EntryToExitTollGate {
+  id: number;
+  entryTollGateId: number;
+  exitTollGateId: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  entryTollGate?: TollGate;
+  exitTollGate?: TollGate;
+  paymentValues?: EntryToExitPaymentValue[];
+  entryToExitTimeWindows?: EntryToExitTimeWindow[];
+}
+
+export interface EntryToExitPaymentValue {
+  id: number;
+  value: number;
+  paymentCategoryId: number;
+  entryToExitTollGateId: number;
+  createdAt?: string;
+  updatedAt?: string;
+  deletedAt?: string | null;
+  paymentCategory?: PaymentCategory;
+  vehicleCategories?: EntryToExitVehicleCategory[];
+}
+
+export interface EntryToExitVehicleCategory {
+  entryToExitPaymentValueId: number;
+  vehicleCategoryId: number;
+  vehicleCategory: VehicleCategory;
+}
+
+export interface EntryToExitTimeWindow {
+  id: number;
+  entryToExitTollGateId: number;
+  paymentCategoryTimeWindowId: number;
+  createdAt?: string;
+  updatedAt?: string;
+  deletedAt?: string | null;
+  paymentCategoryTimeWindow: PaymentCategoryTimeWindow;
 }
 
 // Validation Types
@@ -244,4 +298,68 @@ export interface UseLoadingReturn {
 export interface DuplicateWarning {
   type: 'exact' | 'partial';
   message: string;
+}
+
+// Payment by Crane Route Types
+export interface CoordinateDto {
+  latitude: number;
+  longitude: number;
+}
+
+export interface CalculatePaymentToCraneDto {
+  firstCoordinate: CoordinateDto;
+  lastCoordinate: CoordinateDto;
+}
+
+// Tipo que acepta tanto lat/lng como latitude/longitude para compatibilidad
+export interface LatLngTimestamp {
+  latitude?: number;
+  longitude?: number;
+  lat?: number;
+  lng?: number;
+  timestamp?: string;
+}
+
+// Helper para obtener latitud de un punto (acepta ambas formas)
+export const getLatitude = (point: LatLngTimestamp): number => {
+  return point.latitude ?? point.lat ?? 0;
+};
+
+// Helper para obtener longitud de un punto (acepta ambas formas)
+export const getLongitude = (point: LatLngTimestamp): number => {
+  return point.longitude ?? point.lng ?? 0;
+};
+
+export interface PointsWithTollGateContact {
+  point: LatLngTimestamp;
+  tollGate: TollGate;
+  paymentAmount: number;
+}
+
+export interface TollGateTransactionData extends PointsWithTollGateContact {
+  vehicleCategory?: string;
+  timeWindowApplied?: string;
+  dayTypeApplied?: string;
+  isHoliday?: boolean;
+  paymentValueId?: number;
+  paymentCategoryId?: number;
+  isFreePass?: boolean;
+  entryToExitPaymentValueId?: number;
+  isEntryTollGate?: boolean;
+  isExitTollGate?: boolean;
+}
+
+// Tipo para puntos de ruta
+export interface RoutePoint {
+  lat: number;
+  lng: number;
+  timestamp?: string;
+}
+
+export interface PaymentByCraneRouteResponse {
+  distance: number;
+  route?: RoutePoint[];
+  timeToTravel: number;
+  tollGatesWithValues: TollGateTransactionData[];
+  totalPayment: number;
 }
